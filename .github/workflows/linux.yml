@@ -68,7 +68,6 @@ jobs:
           set -eux
           curl -fsSL -o /cef-build/automate-git.py \
             "https://raw.githubusercontent.com/chromiumembedded/cef/${{ inputs.cef_checkout }}/tools/automate/automate-git.py"
-          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git /cef-build/depot_tools
           df -h /cef-build
 
       - name: Check out Chromium and CEF
