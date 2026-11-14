@@ -26,18 +26,6 @@ jobs:
       GN_DEFINES: is_official_build=true proprietary_codecs=true ffmpeg_branding=Chrome use_thin_lto=false chrome_pgo_phase=false symbol_level=0 blink_symbol_level=0
       CEF_ARCHIVE_FORMAT: tar.bz2
     steps:
-      - name: Free disk for the Chromium tree
-        uses: easimon/maximize-build-space@fc881a613ad2a34aca9c9624518214ebc21dfc0c
-        with:
-          root-reserve-mb: 6144
-          swap-size-mb: 1024
-          remove-dotnet: "true"
-          remove-android: "true"
-          remove-haskell: "true"
-          remove-codeql: "true"
-          remove-docker-images: "true"
-          build-mount-path: /cef-build
-
       - name: Check out this repository
         uses: actions/checkout@v7
 
@@ -56,11 +44,28 @@ jobs:
             unzip \
             wget \
             xz-utils
+          df -h /
+
+      - name: Remove preinstalled toolchains
+        run: |
+          set -eux
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /usr/local/share/boost \
+            /usr/local/share/chromium \
+            /usr/local/share/powershell \
+            /usr/share/swift \
+            /opt/ghc \
+            /opt/hostedtoolcache
+          sudo docker image prune --all --force || true
+          sudo mkdir -p /cef-build
+          sudo chown "$USER" /cef-build
+          df -h /
 
       - name: Download the CEF build script
         run: |
           set -eux
-          sudo chown -R "$USER" /cef-build
           curl -fsSL -o /cef-build/automate-git.py \
             "https://raw.githubusercontent.com/chromiumembedded/cef/${{ inputs.cef_checkout }}/tools/automate/automate-git.py"
           git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git /cef-build/depot_tools

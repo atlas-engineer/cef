@@ -10,5 +10,6 @@ Run the Build workflow from the Actions tab. It publishes
 `cef_binary_<version>_linux64_minimal.tar.bz2` and a `.sha256` file on a
 release tagged with that version.
 
-The job checks out Chromium and compiles it. A GitHub-hosted runner gets the
-disk that can be reclaimed and a six-hour limit.
+The job checks out Chromium and compiles it. It deletes the runner's
+preinstalled toolchains first so the build and package installs share one disk.
+A GitHub-hosted runner has a six-hour limit.
