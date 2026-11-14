@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
-      GN_DEFINES: is_official_build=true proprietary_codecs=true ffmpeg_branding=Chrome use_thin_lto=false chrome_pgo_phase=false symbol_level=0 blink_symbol_level=0
+      GN_DEFINES: is_official_build=true proprietary_codecs=true ffmpeg_branding=Chrome use_thin_lto=false is_cfi=false chrome_pgo_phase=false symbol_level=0 blink_symbol_level=0
       CEF_ARCHIVE_FORMAT: tar.bz2
     steps:
       - name: Check out this repository
