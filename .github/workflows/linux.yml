@@ -1,0 +1,144 @@
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      cef_branch:
+        description: CEF branch number
+        required: true
+        default: "7871"
+        type: string
+      cef_checkout:
+        description: CEF commit on that branch
+        required: true
+        default: c1a097eaa7738483abe2ea9d6297a937d6a884c0
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: Linux x64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      GN_DEFINES: is_official_build=true proprietary_codecs=true ffmpeg_branding=Chrome use_thin_lto=false chrome_pgo_phase=false symbol_level=0 blink_symbol_level=0
+      CEF_ARCHIVE_FORMAT: tar.bz2
+    steps:
+      - name: Free disk for the Chromium tree
+        uses: easimon/maximize-build-space@fc881a613ad2a34aca9c9624518214ebc21dfc0c
+        with:
+          root-reserve-mb: 6144
+          swap-size-mb: 1024
+          remove-dotnet: "true"
+          remove-android: "true"
+          remove-haskell: "true"
+          remove-codeql: "true"
+          remove-docker-images: "true"
+          build-mount-path: /cef-build
+
+      - name: Check out this repository
+        uses: actions/checkout@v7
+
+      - name: Install build packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            curl \
+            git \
+            lsb-release \
+            pkg-config \
+            python-is-python3 \
+            python3 \
+            unzip \
+            wget \
+            xz-utils
+
+      - name: Download the CEF build script
+        run: |
+          set -eux
+          sudo chown -R "$USER" /cef-build
+          curl -fsSL -o /cef-build/automate-git.py \
+            "https://raw.githubusercontent.com/chromiumembedded/cef/${{ inputs.cef_checkout }}/tools/automate/automate-git.py"
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git /cef-build/depot_tools
+          df -h /cef-build
+
+      - name: Check out Chromium and CEF
+        run: |
+          set -eux
+          export PATH="/cef-build/depot_tools:$PATH"
+          python3 /cef-build/automate-git.py \
+            --download-dir=/cef-build \
+            --depot-tools-dir=/cef-build/depot_tools \
+            --branch="${{ inputs.cef_branch }}" \
+            --checkout="${{ inputs.cef_checkout }}" \
+            --no-chromium-history \
+            --no-debug-build \
+            --no-build \
+            --no-distrib \
+            --x64-build \
+            --build-target=cefsimple
+          df -h /cef-build
+
+      - name: Install Chromium build dependencies
+        run: |
+          set -eux
+          cd /cef-build/chromium/src
+          sudo ./build/install-build-deps.sh --no-chromeos-fonts --no-nacl --no-prompt
+
+      - name: Compile the release distribution
+        run: |
+          set -eux
+          export PATH="/cef-build/depot_tools:$PATH"
+          python3 /cef-build/automate-git.py \
+            --download-dir=/cef-build \
+            --depot-tools-dir=/cef-build/depot_tools \
+            --branch="${{ inputs.cef_branch }}" \
+            --checkout="${{ inputs.cef_checkout }}" \
+            --no-chromium-history \
+            --no-update \
+            --no-depot-tools-update \
+            --force-build \
+            --force-distrib \
+            --no-debug-build \
+            --minimal-distrib \
+            --x64-build \
+            --build-target=cefsimple
+          df -h /cef-build
+
+      - name: Require the H.264 and AAC decoders
+        run: |
+          set -eux
+          lib=$(find /cef-build/chromium/src/out -type f -name libcef.so | head -1)
+          test -n "$lib"
+          nm "$lib" | grep -q ' ff_h264_decoder$'
+          nm "$lib" | grep -q ' ff_aac_decoder$'
+
+      - name: Publish the release archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          dist=/cef-build/chromium/src/cef/binary_distrib
+          tarball=$(echo "$dist"/cef_binary_*_linux64_minimal.tar.bz2)
+          test -f "$tarball"
+          base=$(basename "$tarball" .tar.bz2)
+          version=${base#cef_binary_}
+          version=${version%_linux64_minimal}
+          (
+            cd "$dist"
+            sha256sum "$(basename "$tarball")" > "$(basename "$tarball").sha256"
+          )
+          notes="CEF ${version}, built with proprietary_codecs and ffmpeg_branding=Chrome from ${{ inputs.cef_checkout }}."
+          if gh release view "$version" >/dev/null 2>&1; then
+            gh release upload "$version" --clobber \
+              "$tarball" "$tarball.sha256"
+          else
+            gh release create "$version" \
+              --title "CEF ${version}" \
+              --notes "$notes" \
+              "$tarball" "$tarball.sha256"
+          fi
