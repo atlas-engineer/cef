@@ -7,7 +7,6 @@ mkdir -p "$build_dir"
 
 export GN_DEFINES="is_official_build=true proprietary_codecs=true ffmpeg_branding=Chrome use_thin_lto=false is_cfi=false chrome_pgo_phase=false symbol_level=0 blink_symbol_level=0"
 export CEF_ARCHIVE_FORMAT=tar.bz2
-export DEPOT_TOOLS_UPDATE=0
 
 if ! xcodebuild -version >/dev/null 2>&1; then
   echo "Full Xcode is required. Command Line Tools are installed, and Xcode.app is not." >&2
@@ -31,6 +30,11 @@ python3 "$build_dir/automate-git.py" \
   --arm64-build \
   --build-target=cefsimple
 df -h "$build_dir"
+
+if [[ ! -f "$build_dir/depot_tools/python3_bin_reldir.txt" ]]; then
+  env -u DEPOT_TOOLS_UPDATE "$build_dir/depot_tools/ensure_bootstrap"
+fi
+export DEPOT_TOOLS_UPDATE=0
 
 if ! patch -d "$build_dir/chromium/src/cef" -p1 --forward --batch \
   < "$root/patches/corner-radius.patch"; then
