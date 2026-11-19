@@ -10,6 +10,7 @@ the release archive is compiled.
 
 Build the same archive on this machine with `scripts/build-linux.sh`. It runs
 the workflow steps in an Ubuntu 24.04 container and publishes the release.
+`scripts/build-macos.sh` builds the arm64 macOS archive the same way.
 
 Run the Build workflow from the Actions tab. It publishes
 `cef_binary_<version>_linux64_minimal.tar.bz2` and a `.sha256` file on a
