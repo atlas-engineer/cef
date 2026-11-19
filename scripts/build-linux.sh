@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-build_dir=${CEF_BUILD_DIR:-"$HOME/cef-build"}
+build_dir=${CEF_BUILD_DIR:-"$HOME/Source/C++/cef-build"}
 mkdir -p "$build_dir"
 
 docker pull ubuntu:24.04
