@@ -10,7 +10,7 @@ diff --git a/include/views/cef_browser_view.h b/include/views/cef_browser_view.h
 +  /// BrowserView. The view background remains visible in the rounded corners.
 +  /// Pass 0 for square corners.
 +  ///
-+  /*--cef()--*/
++  /*--cef(added=15000)--*/
 +  virtual void SetCornerRadius(int radius) = 0;
 +
    ///

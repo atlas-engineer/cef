@@ -10,6 +10,7 @@ apt-get install -y --no-install-recommends \
   build-essential \
   ca-certificates \
   curl \
+  file \
   git \
   lsb-release \
   patch \
@@ -48,6 +49,7 @@ if ! patch -d /cef-build/chromium/src/cef -p1 --forward --batch \
   grep -q SetCornerRadius \
     /cef-build/chromium/src/cef/include/views/cef_browser_view.h
 fi
+python3 /cef-build/chromium/src/cef/tools/version_manager.py -c --force-update
 
 cd /cef-build/chromium/src
 ./build/install-build-deps.sh --no-chromeos-fonts --no-nacl --no-prompt
