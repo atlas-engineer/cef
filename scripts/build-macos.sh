@@ -5,7 +5,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 build_dir=${CEF_BUILD_DIR:-"$HOME/Source/C++/cef-build"}
 mkdir -p "$build_dir"
 
-export GN_DEFINES="is_official_build=true proprietary_codecs=true ffmpeg_branding=Chrome use_thin_lto=false is_cfi=false chrome_pgo_phase=false symbol_level=0 blink_symbol_level=0"
+export GN_DEFINES="is_official_build=true proprietary_codecs=true ffmpeg_branding=Chrome use_thin_lto=false is_cfi=false chrome_pgo_phase=false symbol_level=0 blink_symbol_level=0 use_clang_modules=false"
 export CEF_ARCHIVE_FORMAT=tar.bz2
 
 if ! xcodebuild -version >/dev/null 2>&1; then
@@ -43,15 +43,8 @@ if ! patch -d "$build_dir/chromium/src/cef" -p1 --forward --batch \
 fi
 python3 "$build_dir/chromium/src/cef/tools/version_manager.py" -c --force-update
 
-mem=$(sysctl -n hw.memsize)
-if [[ "$mem" -le 8589934592 ]]; then
-  mkdir -p "$build_dir/bin"
-  cat > "$build_dir/bin/autoninja" << EOF
-#!/bin/bash
-exec "$build_dir/depot_tools/autoninja" -j 3 "\$@"
-EOF
-  chmod +x "$build_dir/bin/autoninja"
-  export PATH="$build_dir/bin:$build_dir/depot_tools:${PATH}"
+if [[ "$(sysctl -n hw.memsize)" -le 8589934592 ]]; then
+  export NINJA_CORE_LIMIT=3
 fi
 
 python3 "$build_dir/automate-git.py" \
