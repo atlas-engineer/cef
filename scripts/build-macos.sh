@@ -5,7 +5,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 build_dir=${CEF_BUILD_DIR:-"$HOME/Source/C++/cef-build"}
 mkdir -p "$build_dir"
 
-export GN_DEFINES="is_official_build=true proprietary_codecs=true ffmpeg_branding=Chrome use_thin_lto=false is_cfi=false chrome_pgo_phase=false symbol_level=0 blink_symbol_level=0 use_clang_modules=false"
+export GN_DEFINES="is_official_build=true proprietary_codecs=true ffmpeg_branding=Chrome use_thin_lto=false is_cfi=false chrome_pgo_phase=false symbol_level=0 blink_symbol_level=0 use_clang_modules=false mac_sdk_path=\"/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk\""
 export CEF_ARCHIVE_FORMAT=tar.bz2
 
 if ! xcodebuild -version >/dev/null 2>&1; then
