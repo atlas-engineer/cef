@@ -51,6 +51,8 @@ if ! patch -d /cef-build/chromium/src/cef -p1 --forward --batch \
 fi
 python3 /cef-build/chromium/src/cef/tools/version_manager.py -c --force-update
 
+chmod a+x /cef-build/chromium/src/third_party/node/linux/node-linux-x64/bin/node
+
 cd /cef-build/chromium/src
 ./build/install-build-deps.sh --no-chromeos-fonts --no-nacl --no-prompt
 apt-get install -y --no-install-recommends \
