@@ -87,6 +87,12 @@ jobs:
             --build-target=cefsimple
           df -h /cef-build
 
+      - name: Round the browser view web content
+        run: |
+          set -eux
+          patch -d /cef-build/chromium/src/cef -p1 --forward \
+            < "$GITHUB_WORKSPACE/patches/corner-radius.patch"
+
       - name: Install Chromium build dependencies
         run: |
           set -eux
@@ -139,7 +145,9 @@ jobs:
             cd "$dist"
             sha256sum "$(basename "$tarball")" > "$(basename "$tarball").sha256"
           )
-          notes="CEF ${version}, built with proprietary_codecs and ffmpeg_branding=Chrome from ${{ inputs.cef_checkout }}."
+          notes="CEF ${version}, built with proprietary_codecs and ffmpeg_branding=Chrome from ${{ inputs.cef_checkout }}.
+
+Adds CefBrowserView::SetCornerRadius. The radius clips the hosted web content so the view background shows in the corners."
           if gh release view "$version" >/dev/null 2>&1; then
             gh release upload "$version" --clobber \
               "$tarball" "$tarball.sha256"
