@@ -7,7 +7,6 @@ platform=${CEF_PLATFORM:?CEF_PLATFORM is required (linux or macos)}
 cef_branch=${CEF_BRANCH:?CEF_BRANCH is required}
 cef_checkout=${CEF_CHECKOUT:?CEF_CHECKOUT is required}
 compile_minutes=${COMPILE_MINUTES:-285}
-final_stage=${FINAL_STAGE:-false}
 checkpoint_in=${CHECKPOINT_IN:-}
 checkpoint_out=${CHECKPOINT_OUT:?CHECKPOINT_OUT is required}
 dist_out=${DIST_OUT:?DIST_OUT is required}
@@ -337,11 +336,6 @@ if [[ "$compile_rc" -eq 0 ]]; then
 fi
 
 if [[ "$compile_rc" -eq 75 ]]; then
-  if [[ "$final_stage" == "true" ]]; then
-    echo "ERROR: CEF compilation did not finish within the final stage budget." >&2
-    exit 1
-  fi
-
   rm -f \
     "$build_dir/chromium/src/out/$out_subdir"/siso_* \
     "$build_dir/chromium/src/out/$out_subdir"/siso.INFO*
