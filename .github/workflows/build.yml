@@ -1,0 +1,419 @@
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      cef_branch:
+        description: CEF branch number
+        required: true
+        default: "7871"
+        type: string
+      cef_checkout:
+        description: CEF commit on that branch
+        required: true
+        default: c1a097eaa7738483abe2ea9d6297a937d6a884c0
+        type: string
+      platforms:
+        description: Platforms to build
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - linux
+          - macos
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Linux x64 (chained time-boxed stages, each <= 6h)
+  # ---------------------------------------------------------------------------
+  linux-stage-1:
+    name: Linux x64 (Stage 1/6)
+    if: inputs.platforms == 'all' || inputs.platforms == 'linux'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      completed: ${{ steps.stage.outputs.completed }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: stage
+        uses: ./.github/actions/cef-stage
+        with:
+          platform: linux
+          stage: "1"
+          cef_branch: ${{ inputs.cef_branch }}
+          cef_checkout: ${{ inputs.cef_checkout }}
+
+  linux-stage-2:
+    name: Linux x64 (Stage 2/6)
+    needs: [linux-stage-1]
+    if: >-
+      !failure() && !cancelled() &&
+      (inputs.platforms == 'all' || inputs.platforms == 'linux') &&
+      needs.linux-stage-1.outputs.completed != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      completed: ${{ steps.stage.outputs.completed }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: stage
+        uses: ./.github/actions/cef-stage
+        with:
+          platform: linux
+          stage: "2"
+          prev_stage: "1"
+          cef_branch: ${{ inputs.cef_branch }}
+          cef_checkout: ${{ inputs.cef_checkout }}
+
+  linux-stage-3:
+    name: Linux x64 (Stage 3/6)
+    needs: [linux-stage-1, linux-stage-2]
+    if: >-
+      !failure() && !cancelled() &&
+      (inputs.platforms == 'all' || inputs.platforms == 'linux') &&
+      needs.linux-stage-1.outputs.completed != 'true' &&
+      needs.linux-stage-2.outputs.completed != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      completed: ${{ steps.stage.outputs.completed }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: stage
+        uses: ./.github/actions/cef-stage
+        with:
+          platform: linux
+          stage: "3"
+          prev_stage: "2"
+          cef_branch: ${{ inputs.cef_branch }}
+          cef_checkout: ${{ inputs.cef_checkout }}
+
+  linux-stage-4:
+    name: Linux x64 (Stage 4/6)
+    needs: [linux-stage-1, linux-stage-2, linux-stage-3]
+    if: >-
+      !failure() && !cancelled() &&
+      (inputs.platforms == 'all' || inputs.platforms == 'linux') &&
+      needs.linux-stage-1.outputs.completed != 'true' &&
+      needs.linux-stage-2.outputs.completed != 'true' &&
+      needs.linux-stage-3.outputs.completed != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      completed: ${{ steps.stage.outputs.completed }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: stage
+        uses: ./.github/actions/cef-stage
+        with:
+          platform: linux
+          stage: "4"
+          prev_stage: "3"
+          cef_branch: ${{ inputs.cef_branch }}
+          cef_checkout: ${{ inputs.cef_checkout }}
+
+  linux-stage-5:
+    name: Linux x64 (Stage 5/6)
+    needs: [linux-stage-1, linux-stage-2, linux-stage-3, linux-stage-4]
+    if: >-
+      !failure() && !cancelled() &&
+      (inputs.platforms == 'all' || inputs.platforms == 'linux') &&
+      needs.linux-stage-1.outputs.completed != 'true' &&
+      needs.linux-stage-2.outputs.completed != 'true' &&
+      needs.linux-stage-3.outputs.completed != 'true' &&
+      needs.linux-stage-4.outputs.completed != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      completed: ${{ steps.stage.outputs.completed }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: stage
+        uses: ./.github/actions/cef-stage
+        with:
+          platform: linux
+          stage: "5"
+          prev_stage: "4"
+          cef_branch: ${{ inputs.cef_branch }}
+          cef_checkout: ${{ inputs.cef_checkout }}
+
+  linux-stage-6:
+    name: Linux x64 (Stage 6/6)
+    needs: [linux-stage-1, linux-stage-2, linux-stage-3, linux-stage-4, linux-stage-5]
+    if: >-
+      !failure() && !cancelled() &&
+      (inputs.platforms == 'all' || inputs.platforms == 'linux') &&
+      needs.linux-stage-1.outputs.completed != 'true' &&
+      needs.linux-stage-2.outputs.completed != 'true' &&
+      needs.linux-stage-3.outputs.completed != 'true' &&
+      needs.linux-stage-4.outputs.completed != 'true' &&
+      needs.linux-stage-5.outputs.completed != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      completed: ${{ steps.stage.outputs.completed }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: stage
+        uses: ./.github/actions/cef-stage
+        with:
+          platform: linux
+          stage: "6"
+          prev_stage: "5"
+          final_stage: "true"
+          cef_branch: ${{ inputs.cef_branch }}
+          cef_checkout: ${{ inputs.cef_checkout }}
+
+  linux-publish:
+    name: Publish Linux x64
+    needs: [linux-stage-1, linux-stage-2, linux-stage-3, linux-stage-4, linux-stage-5, linux-stage-6]
+    if: >-
+      !failure() && !cancelled() &&
+      (inputs.platforms == 'all' || inputs.platforms == 'linux')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: cef-release-${{ inputs.cef_checkout }}
+      cancel-in-progress: false
+    steps:
+      - name: Verify compilation completed
+        run: |
+          if [[ "${{ needs.linux-stage-1.outputs.completed }}" != "true" &&
+                "${{ needs.linux-stage-2.outputs.completed }}" != "true" &&
+                "${{ needs.linux-stage-3.outputs.completed }}" != "true" &&
+                "${{ needs.linux-stage-4.outputs.completed }}" != "true" &&
+                "${{ needs.linux-stage-5.outputs.completed }}" != "true" &&
+                "${{ needs.linux-stage-6.outputs.completed }}" != "true" ]]; then
+            echo "ERROR: Linux x64 compilation did not complete." >&2
+            exit 1
+          fi
+
+      - name: Download Linux distribution archive
+        uses: actions/download-artifact@v8
+        with:
+          name: cef-dist-linux
+          path: ${{ runner.temp }}/dist
+
+      - name: Publish Linux archive to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CEF_CHECKOUT: ${{ inputs.cef_checkout }}
+        run: |
+          set -eux
+          dist="${RUNNER_TEMP}/dist"
+          tarball=$(echo "$dist"/cef_binary_*_linux64_minimal.tar.bz2)
+          test -f "$tarball"
+          test -f "$tarball.sha256"
+          base=$(basename "$tarball" .tar.bz2)
+          version=${base#cef_binary_}
+          version=${version%_linux64_minimal}
+          notes=$(printf 'CEF %s, built with proprietary_codecs and ffmpeg_branding=Chrome from %s.\n\nAdds CefBrowserView::SetCornerRadius. The radius clips the hosted web content so the view background shows in the corners.' "$version" "$CEF_CHECKOUT")
+          if gh release view "$version" >/dev/null 2>&1; then
+            gh release upload "$version" --clobber \
+              "$tarball" "$tarball.sha256"
+          else
+            gh release create "$version" \
+              --title "CEF ${version}" \
+              --notes "$notes" \
+              "$tarball" "$tarball.sha256"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # macOS arm64 (chained time-boxed stages, each <= 6h)
+  # ---------------------------------------------------------------------------
+  macos-stage-1:
+    name: macOS arm64 (Stage 1/6)
+    if: inputs.platforms == 'all' || inputs.platforms == 'macos'
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs:
+      completed: ${{ steps.stage.outputs.completed }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: stage
+        uses: ./.github/actions/cef-stage
+        with:
+          platform: macos
+          stage: "1"
+          cef_branch: ${{ inputs.cef_branch }}
+          cef_checkout: ${{ inputs.cef_checkout }}
+
+  macos-stage-2:
+    name: macOS arm64 (Stage 2/6)
+    needs: [macos-stage-1]
+    if: >-
+      !failure() && !cancelled() &&
+      (inputs.platforms == 'all' || inputs.platforms == 'macos') &&
+      needs.macos-stage-1.outputs.completed != 'true'
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs:
+      completed: ${{ steps.stage.outputs.completed }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: stage
+        uses: ./.github/actions/cef-stage
+        with:
+          platform: macos
+          stage: "2"
+          prev_stage: "1"
+          cef_branch: ${{ inputs.cef_branch }}
+          cef_checkout: ${{ inputs.cef_checkout }}
+
+  macos-stage-3:
+    name: macOS arm64 (Stage 3/6)
+    needs: [macos-stage-1, macos-stage-2]
+    if: >-
+      !failure() && !cancelled() &&
+      (inputs.platforms == 'all' || inputs.platforms == 'macos') &&
+      needs.macos-stage-1.outputs.completed != 'true' &&
+      needs.macos-stage-2.outputs.completed != 'true'
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs:
+      completed: ${{ steps.stage.outputs.completed }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: stage
+        uses: ./.github/actions/cef-stage
+        with:
+          platform: macos
+          stage: "3"
+          prev_stage: "2"
+          cef_branch: ${{ inputs.cef_branch }}
+          cef_checkout: ${{ inputs.cef_checkout }}
+
+  macos-stage-4:
+    name: macOS arm64 (Stage 4/6)
+    needs: [macos-stage-1, macos-stage-2, macos-stage-3]
+    if: >-
+      !failure() && !cancelled() &&
+      (inputs.platforms == 'all' || inputs.platforms == 'macos') &&
+      needs.macos-stage-1.outputs.completed != 'true' &&
+      needs.macos-stage-2.outputs.completed != 'true' &&
+      needs.macos-stage-3.outputs.completed != 'true'
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs:
+      completed: ${{ steps.stage.outputs.completed }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: stage
+        uses: ./.github/actions/cef-stage
+        with:
+          platform: macos
+          stage: "4"
+          prev_stage: "3"
+          cef_branch: ${{ inputs.cef_branch }}
+          cef_checkout: ${{ inputs.cef_checkout }}
+
+  macos-stage-5:
+    name: macOS arm64 (Stage 5/6)
+    needs: [macos-stage-1, macos-stage-2, macos-stage-3, macos-stage-4]
+    if: >-
+      !failure() && !cancelled() &&
+      (inputs.platforms == 'all' || inputs.platforms == 'macos') &&
+      needs.macos-stage-1.outputs.completed != 'true' &&
+      needs.macos-stage-2.outputs.completed != 'true' &&
+      needs.macos-stage-3.outputs.completed != 'true' &&
+      needs.macos-stage-4.outputs.completed != 'true'
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs:
+      completed: ${{ steps.stage.outputs.completed }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: stage
+        uses: ./.github/actions/cef-stage
+        with:
+          platform: macos
+          stage: "5"
+          prev_stage: "4"
+          cef_branch: ${{ inputs.cef_branch }}
+          cef_checkout: ${{ inputs.cef_checkout }}
+
+  macos-stage-6:
+    name: macOS arm64 (Stage 6/6)
+    needs: [macos-stage-1, macos-stage-2, macos-stage-3, macos-stage-4, macos-stage-5]
+    if: >-
+      !failure() && !cancelled() &&
+      (inputs.platforms == 'all' || inputs.platforms == 'macos') &&
+      needs.macos-stage-1.outputs.completed != 'true' &&
+      needs.macos-stage-2.outputs.completed != 'true' &&
+      needs.macos-stage-3.outputs.completed != 'true' &&
+      needs.macos-stage-4.outputs.completed != 'true' &&
+      needs.macos-stage-5.outputs.completed != 'true'
+    runs-on: macos-26
+    timeout-minutes: 360
+    outputs:
+      completed: ${{ steps.stage.outputs.completed }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: stage
+        uses: ./.github/actions/cef-stage
+        with:
+          platform: macos
+          stage: "6"
+          prev_stage: "5"
+          final_stage: "true"
+          cef_branch: ${{ inputs.cef_branch }}
+          cef_checkout: ${{ inputs.cef_checkout }}
+
+  macos-publish:
+    name: Publish macOS arm64
+    needs: [macos-stage-1, macos-stage-2, macos-stage-3, macos-stage-4, macos-stage-5, macos-stage-6]
+    if: >-
+      !failure() && !cancelled() &&
+      (inputs.platforms == 'all' || inputs.platforms == 'macos')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: cef-release-${{ inputs.cef_checkout }}
+      cancel-in-progress: false
+    steps:
+      - name: Verify compilation completed
+        run: |
+          if [[ "${{ needs.macos-stage-1.outputs.completed }}" != "true" &&
+                "${{ needs.macos-stage-2.outputs.completed }}" != "true" &&
+                "${{ needs.macos-stage-3.outputs.completed }}" != "true" &&
+                "${{ needs.macos-stage-4.outputs.completed }}" != "true" &&
+                "${{ needs.macos-stage-5.outputs.completed }}" != "true" &&
+                "${{ needs.macos-stage-6.outputs.completed }}" != "true" ]]; then
+            echo "ERROR: macOS arm64 compilation did not complete." >&2
+            exit 1
+          fi
+
+      - name: Download macOS distribution archive
+        uses: actions/download-artifact@v8
+        with:
+          name: cef-dist-macos
+          path: ${{ runner.temp }}/dist
+
+      - name: Publish macOS archive to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CEF_CHECKOUT: ${{ inputs.cef_checkout }}
+        run: |
+          set -eux
+          dist="${RUNNER_TEMP}/dist"
+          tarball=$(echo "$dist"/cef_binary_*_macosarm64_minimal.tar.bz2)
+          test -f "$tarball"
+          test -f "$tarball.sha256"
+          base=$(basename "$tarball" .tar.bz2)
+          version=${base#cef_binary_}
+          version=${version%_macosarm64_minimal}
+          notes=$(printf 'CEF %s, built with proprietary_codecs and ffmpeg_branding=Chrome from %s.\n\nAdds CefBrowserView::SetCornerRadius. The radius clips the hosted web content so the view background shows in the corners.' "$version" "$CEF_CHECKOUT")
+          if gh release view "$version" >/dev/null 2>&1; then
+            gh release upload "$version" --clobber \
+              "$tarball" "$tarball.sha256"
+          else
+            gh release create "$version" \
+              --title "CEF ${version}" \
+              --notes "$notes" \
+              "$tarball" "$tarball.sha256"
+          fi

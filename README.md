@@ -12,10 +12,13 @@ Build the same archive on this machine with `scripts/build-linux.sh`. It runs
 the workflow steps in an Ubuntu 24.04 container and publishes the release.
 `scripts/build-macos.sh` builds the arm64 macOS archive the same way.
 
-Run the Build workflow from the Actions tab. It publishes
-`cef_binary_<version>_linux64_minimal.tar.bz2` and a `.sha256` file on a
-release tagged with that version.
+Run the Build workflow from the Actions tab. It builds Linux x64 and macOS
+arm64 in parallel and publishes `cef_binary_<version>_linux64_minimal.tar.bz2`
+and `cef_binary_<version>_macosarm64_minimal.tar.bz2` (with `.sha256` files) on
+a release tagged with that version.
 
-The job checks out Chromium and compiles it. It deletes the runner's
-preinstalled toolchains first so the build and package installs share one disk.
-A GitHub-hosted runner has a six-hour limit.
+GitHub-hosted runners enforce a six-hour limit per job, and a full Chromium/CEF
+compile takes longer than six hours. Each platform chains up to six time-boxed
+compile jobs: before the limit, Siso flushes its build state on `SIGINT`, the
+stage archives `out/` with `zstd`, and the next stage restores a deterministic
+source tree and resumes from the saved checkpoint until `autoninja` completes.
