@@ -87,9 +87,11 @@ df -h /cef-build
 
 lib=$(find /cef-build/chromium/src/out -type f -name libcef.so | head -1)
 test -n "$lib"
-nm "$lib" | grep -q ' ff_h264_decoder$'
-nm "$lib" | grep -q ' ff_aac_decoder$'
-nm "$lib" | grep -q 'SetCornerRadius'
-nm "$lib" | grep -q 'SetBackgroundBlur'
-nm "$lib" | grep -q 'SetSafeAreaInsets'
-nm "$lib" | grep -q 'SetViewportCutout'
+nm "$lib" > /cef-build/cef_symbols.txt
+grep -q ' ff_h264_decoder$' /cef-build/cef_symbols.txt
+grep -q ' ff_aac_decoder$' /cef-build/cef_symbols.txt
+grep -q 'SetCornerRadius' /cef-build/cef_symbols.txt
+grep -q 'SetBackgroundBlur' /cef-build/cef_symbols.txt
+grep -q 'SetSafeAreaInsets' /cef-build/cef_symbols.txt
+grep -q 'SetViewportCutout' /cef-build/cef_symbols.txt
+rm -f /cef-build/cef_symbols.txt
