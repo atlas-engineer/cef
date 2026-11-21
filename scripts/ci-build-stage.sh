@@ -289,6 +289,30 @@ set -e
 df -h "$build_dir"
 
 if [[ "$compile_rc" -eq 0 ]]; then
+  if [[ "$platform" == "linux" ]]; then
+    lib=$(find "$build_dir/chromium/src/out/$out_subdir" -maxdepth 2 -type f -name libcef.so | head -1)
+    test -n "$lib"
+    nm "$lib" > "$build_dir/cef_symbols.txt"
+    grep -q ' ff_h264_decoder$' "$build_dir/cef_symbols.txt"
+    grep -q ' ff_aac_decoder$' "$build_dir/cef_symbols.txt"
+    grep -q 'SetCornerRadius' "$build_dir/cef_symbols.txt"
+    grep -q 'SetBackgroundBlur' "$build_dir/cef_symbols.txt"
+    grep -q 'SetSafeAreaInsets' "$build_dir/cef_symbols.txt"
+    grep -q 'SetViewportCutout' "$build_dir/cef_symbols.txt"
+    rm -f "$build_dir/cef_symbols.txt"
+  else
+    lib="$build_dir/chromium/src/out/$out_subdir/Chromium Embedded Framework.framework/Chromium Embedded Framework"
+    test -f "$lib"
+    nm "$lib" > "$build_dir/cef_symbols.txt"
+    grep -Eq ' _?ff_h264_decoder$' "$build_dir/cef_symbols.txt"
+    grep -Eq ' _?ff_aac_decoder$' "$build_dir/cef_symbols.txt"
+    grep -q 'SetCornerRadius' "$build_dir/cef_symbols.txt"
+    grep -q 'SetBackgroundBlur' "$build_dir/cef_symbols.txt"
+    grep -q 'SetSafeAreaInsets' "$build_dir/cef_symbols.txt"
+    grep -q 'SetViewportCutout' "$build_dir/cef_symbols.txt"
+    rm -f "$build_dir/cef_symbols.txt"
+  fi
+
   python3 "$build_dir/automate-git.py" \
     --download-dir="$build_dir" \
     --depot-tools-dir="$build_dir/depot_tools" \
@@ -303,26 +327,6 @@ if [[ "$compile_rc" -eq 0 ]]; then
     --minimal-distrib-only \
     "$arch_flag" \
     --build-target=cefsimple
-
-  if [[ "$platform" == "linux" ]]; then
-    lib=$(find "$build_dir/chromium/src/out/$out_subdir" -maxdepth 2 -type f -name libcef.so | head -1)
-    test -n "$lib"
-    nm "$lib" | grep -q ' ff_h264_decoder$'
-    nm "$lib" | grep -q ' ff_aac_decoder$'
-    nm "$lib" | grep -q 'SetCornerRadius'
-    nm "$lib" | grep -q 'SetBackgroundBlur'
-    nm "$lib" | grep -q 'SetSafeAreaInsets'
-    nm "$lib" | grep -q 'SetViewportCutout'
-  else
-    lib="$build_dir/chromium/src/out/$out_subdir/Chromium Embedded Framework.framework/Chromium Embedded Framework"
-    test -f "$lib"
-    nm "$lib" | grep -Eq ' _?ff_h264_decoder$'
-    nm "$lib" | grep -Eq ' _?ff_aac_decoder$'
-    nm "$lib" | grep -q 'SetCornerRadius'
-    nm "$lib" | grep -q 'SetBackgroundBlur'
-    nm "$lib" | grep -q 'SetSafeAreaInsets'
-    nm "$lib" | grep -q 'SetViewportCutout'
-  fi
 
   dist="$build_dir/chromium/src/cef/binary_distrib"
   # shellcheck disable=SC2086
