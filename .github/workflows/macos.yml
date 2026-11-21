@@ -240,11 +240,11 @@ jobs:
           version=${base#cef_binary_}
           version=${version%_macosarm64_minimal}
           notes=$(printf 'CEF %s, built with proprietary_codecs and ffmpeg_branding=Chrome from %s.\n\nAdds CefBrowserView::SetCornerRadius, CefBrowserView::SetBackgroundBlur, CefBrowserView::SetSafeAreaInsets, CefPanel::ClearLayout, and CefPanel::SetViewportCutout.' "$version" "$CEF_CHECKOUT")
-          if gh release view "$version" >/dev/null 2>&1; then
-            gh release upload "$version" --clobber \
+          if gh release view "$version" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "$version" --repo "${GITHUB_REPOSITORY}" --clobber \
               "$tarball" "$tarball.sha256"
           else
-            gh release create "$version" \
+            gh release create "$version" --repo "${GITHUB_REPOSITORY}" \
               --title "CEF ${version}" \
               --notes "$notes" \
               "$tarball" "$tarball.sha256"
