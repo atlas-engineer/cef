@@ -26,7 +26,7 @@ version=${version%_linux64_minimal}
 notes=$(cat <<EOF
 CEF ${version}, built with proprietary_codecs and ffmpeg_branding=Chrome from c1a097eaa7738483abe2ea9d6297a937d6a884c0.
 
-Adds CefBrowserView::SetCornerRadius. The radius clips the hosted web content so the view background shows in the corners.
+Adds CefBrowserView::SetCornerRadius, CefBrowserView::SetBackgroundBlur, CefBrowserView::SetSafeAreaInsets, CefPanel::ClearLayout, and CefPanel::SetViewportCutout.
 EOF
 )
 if gh release view "$version" --repo atlas-engineer/cef >/dev/null 2>&1; then

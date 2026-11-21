@@ -239,7 +239,7 @@ jobs:
           base=$(basename "$tarball" .tar.bz2)
           version=${base#cef_binary_}
           version=${version%_linux64_minimal}
-          notes=$(printf 'CEF %s, built with proprietary_codecs and ffmpeg_branding=Chrome from %s.\n\nAdds CefBrowserView::SetCornerRadius. The radius clips the hosted web content so the view background shows in the corners.' "$version" "$CEF_CHECKOUT")
+          notes=$(printf 'CEF %s, built with proprietary_codecs and ffmpeg_branding=Chrome from %s.\n\nAdds CefBrowserView::SetCornerRadius, CefBrowserView::SetBackgroundBlur, CefBrowserView::SetSafeAreaInsets, CefPanel::ClearLayout, and CefPanel::SetViewportCutout.' "$version" "$CEF_CHECKOUT")
           if gh release view "$version" >/dev/null 2>&1; then
             gh release upload "$version" --clobber \
               "$tarball" "$tarball.sha256"

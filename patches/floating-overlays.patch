@@ -1,0 +1,1211 @@
+diff --git a/include/views/cef_browser_view.h b/include/views/cef_browser_view.h
+index 1395d0fcc..e27d3d93c 100644
+--- a/include/views/cef_browser_view.h
++++ b/include/views/cef_browser_view.h
+@@ -116,6 +116,22 @@ class CefBrowserView : public CefView {
+   /*--cef(added=15000)--*/
+   virtual void SetCornerRadius(int radius) = 0;
+ 
++  ///
++  /// Set the compositor backdrop blur radius, in DIP, behind this BrowserView.
++  /// Pass 0 to disable backdrop blur.
++  ///
++  /*--cef(added=15000)--*/
++  virtual void SetBackgroundBlur(int radius) = 0;
++
++  ///
++  /// Set the unoccluded viewport safe-area insets, in DIP, for the hosted page.
++  ///
++  /*--cef(added=15000)--*/
++  virtual void SetSafeAreaInsets(int top,
++                                 int left,
++                                 int bottom,
++                                 int right) = 0;
++
+   ///
+   /// Returns the runtime style for this BrowserView (ALLOY or CHROME). See
+   /// cef_runtime_style_t documentation for details.
+diff --git a/include/views/cef_panel.h b/include/views/cef_panel.h
+index f74c22816..8a5b850b2 100644
+--- a/include/views/cef_panel.h
++++ b/include/views/cef_panel.h
+@@ -79,6 +79,27 @@ class CefPanel : public CefView {
+   virtual CefRefPtr<CefBoxLayout> SetToBoxLayout(
+       const CefBoxLayoutSettings& settings) = 0;
+ 
++  ///
++  /// Clear any Layout assigned to this Panel so child Views use manual bounds.
++  ///
++  /*--cef(added=15000)--*/
++  virtual void ClearLayout() = 0;
++
++  ///
++  /// Configure this Panel as a pass-through frosted frame with a rounded
++  /// rectangular cutout.
++  ///
++  /*--cef(added=15000)--*/
++  virtual void SetViewportCutout(bool enabled,
++                                 int x,
++                                 int y,
++                                 int width,
++                                 int height,
++                                 int corner_radius,
++                                 int blur_radius,
++                                 cef_color_t tint_color,
++                                 cef_color_t border_color) = 0;
++
+   ///
+   /// Get the Layout.
+   ///
+diff --git a/libcef/browser/views/basic_panel_impl.cc b/libcef/browser/views/basic_panel_impl.cc
+index cbcc6b1c7..c8d79a936 100644
+--- a/libcef/browser/views/basic_panel_impl.cc
++++ b/libcef/browser/views/basic_panel_impl.cc
+@@ -31,3 +31,18 @@ views::View* CefBasicPanelImpl::CreateRootView() {
+ void CefBasicPanelImpl::InitializeRootView() {
+   static_cast<CefBasicPanelView*>(root_view())->Initialize();
+ }
++
++void CefBasicPanelImpl::SetViewportCutout(bool enabled,
++                                          int x,
++                                          int y,
++                                          int width,
++                                          int height,
++                                          int corner_radius,
++                                          int blur_radius,
++                                          cef_color_t tint_color,
++                                          cef_color_t border_color) {
++  CEF_REQUIRE_VALID_RETURN_VOID();
++  static_cast<CefBasicPanelView*>(root_view())->SetViewportCutout(
++      enabled, x, y, width, height, corner_radius, blur_radius,
++      tint_color, border_color);
++}
+diff --git a/libcef/browser/views/basic_panel_impl.h b/libcef/browser/views/basic_panel_impl.h
+index 7dc1ea24a..cd3e2c2b0 100644
+--- a/libcef/browser/views/basic_panel_impl.h
++++ b/libcef/browser/views/basic_panel_impl.h
+@@ -26,6 +26,16 @@ class CefBasicPanelImpl
+   // CefViewAdapter methods:
+   std::string GetDebugType() override { return "Panel"; }
+ 
++  void SetViewportCutout(bool enabled,
++                         int x,
++                         int y,
++                         int width,
++                         int height,
++                         int corner_radius,
++                         int blur_radius,
++                         cef_color_t tint_color,
++                         cef_color_t border_color) override;
++
+  private:
+   // Create a new implementation object.
+   // Always call Initialize() after creation.
+diff --git a/libcef/browser/views/basic_panel_view.cc b/libcef/browser/views/basic_panel_view.cc
+index d4cb32576..d2c09b495 100644
+--- a/libcef/browser/views/basic_panel_view.cc
++++ b/libcef/browser/views/basic_panel_view.cc
+@@ -1,13 +1,214 @@
+-// Copyright 2016 The Chromium Embedded Framework Authors. All rights reserved.
+-// Use of this source code is governed by a BSD-style license that can be found
+-// in the LICENSE file.
+-
+ #include "cef/libcef/browser/views/basic_panel_view.h"
+ 
++#include "base/memory/raw_ptr.h"
++#include "cc/paint/paint_canvas.h"
++#include "cc/paint/paint_flags.h"
++#include "third_party/skia/include/core/SkPathBuilder.h"
++#include "third_party/skia/include/core/SkRRect.h"
+ #include "ui/base/metadata/metadata_impl_macros.h"
++#include "ui/compositor/layer.h"
++#include "ui/compositor/paint_recorder.h"
++#include "ui/gfx/canvas.h"
++#include "ui/views/widget/widget.h"
++
++#if defined(USE_AURA)
++#include "ui/views/view_constants_aura.h"
++
++class CefBasicPanelView::MatteLayerDelegate : public ui::LayerDelegate {
++ public:
++  explicit MatteLayerDelegate(CefBasicPanelView* owner) : owner_(owner) {}
++  ~MatteLayerDelegate() override = default;
++
++  void OnPaintLayer(const ui::PaintContext& context) override {
++    if (owner_) {
++      owner_->PaintMatteLayer(context);
++    }
++  }
++
++  void OnDeviceScaleFactorChanged(float old_device_scale_factor,
++                                  float new_device_scale_factor) override {}
++
++ private:
++  raw_ptr<CefBasicPanelView> owner_;
++};
++#endif
+ 
+ CefBasicPanelView::CefBasicPanelView(CefPanelDelegate* cef_delegate)
+     : ParentClass(cef_delegate) {}
+ 
++CefBasicPanelView::~CefBasicPanelView() {
++  DetachMatteWindow();
++#if defined(USE_AURA)
++  if (matte_window_ && matte_window_->layer()) {
++    matte_window_->layer()->set_delegate(nullptr);
++  }
++  matte_window_.reset();
++  matte_delegate_.reset();
++#endif
++}
++
++void CefBasicPanelView::SetViewportCutout(bool enabled,
++                                          int x,
++                                          int y,
++                                          int width,
++                                          int height,
++                                          int corner_radius,
++                                          int blur_radius,
++                                          SkColor tint_color,
++                                          SkColor border_color) {
++  matte_enabled_ = enabled;
++  cutout_x_ = x;
++  cutout_y_ = y;
++  cutout_width_ = width;
++  cutout_height_ = height;
++  cutout_radius_ = corner_radius;
++  blur_radius_ = blur_radius;
++  tint_color_ = tint_color;
++  border_color_ = border_color;
++  SetCanProcessEventsWithinSubtree(!enabled);
++  SyncMatteWindow();
++}
++
++void CefBasicPanelView::AddedToWidget() {
++  ParentClass::AddedToWidget();
++  SyncMatteWindow();
++}
++
++void CefBasicPanelView::RemovedFromWidget() {
++  DetachMatteWindow();
++  ParentClass::RemovedFromWidget();
++}
++
++void CefBasicPanelView::OnBoundsChanged(const gfx::Rect& previous_bounds) {
++  ParentClass::OnBoundsChanged(previous_bounds);
++  if (matte_enabled_) {
++    SyncMatteWindow();
++  }
++}
++
++void CefBasicPanelView::VisibilityChanged(views::View* starting_from,
++                                          bool is_visible) {
++  ParentClass::VisibilityChanged(starting_from, is_visible);
++  if (matte_enabled_) {
++    SyncMatteWindow();
++  }
++}
++
++SkPath CefBasicPanelView::BuildCutoutPath() const {
++  SkPathBuilder builder(SkPathFillType::kEvenOdd);
++  builder.addRect(SkRect::MakeWH(width(), height()));
++  if (cutout_width_ > 0 && cutout_height_ > 0) {
++    SkRect cut = SkRect::MakeXYWH(cutout_x_, cutout_y_,
++                                  cutout_width_, cutout_height_);
++    if (cutout_radius_ > 0) {
++      float r = static_cast<float>(cutout_radius_);
++      builder.addRRect(SkRRect::MakeRectXY(cut, r, r));
++    } else {
++      builder.addRect(cut);
++    }
++  }
++  return builder.detach();
++}
++
++void CefBasicPanelView::SyncMatteWindow() {
++#if defined(USE_AURA)
++  views::Widget* widget = GetWidget();
++  if (!matte_enabled_ || !widget || !widget->GetNativeView()) {
++    if (matte_window_) {
++      matte_window_->Hide();
++    }
++    return;
++  }
++  bool need_reorder = false;
++  if (!matte_window_) {
++    matte_delegate_ = std::make_unique<MatteLayerDelegate>(this);
++    matte_window_ = std::make_unique<aura::Window>(nullptr);
++    matte_window_->Init(ui::LAYER_TEXTURED);
++    matte_window_->set_owned_by_parent(false);
++    matte_window_->SetTransparent(true);
++    matte_window_->SetEventTargetingPolicy(aura::EventTargetingPolicy::kNone);
++    matte_window_->SetProperty(views::kHostViewKey,
++                               static_cast<views::View*>(this));
++    matte_window_->layer()->set_delegate(matte_delegate_.get());
++    matte_window_->layer()->SetFillsBoundsOpaquely(false);
++    matte_window_->layer()->SetAcceptEvents(false);
++    need_reorder = true;
++  }
++  if (matte_window_->parent() != widget->GetNativeView()) {
++    views::Widget::ReparentNativeView(matte_window_.get(),
++                                      widget->GetNativeView());
++    need_reorder = true;
++  }
++  gfx::Rect bounds_in_widget = ConvertRectToWidget(GetLocalBounds());
++  matte_window_->SetBounds(bounds_in_widget);
++  if (IsDrawn()) {
++    matte_window_->Show();
++  } else {
++    matte_window_->Hide();
++  }
++  if (need_reorder) {
++    widget->ReorderNativeViews();
++  }
++  if (blur_radius_ > 0 && width() > 0 && height() > 0) {
++    matte_window_->layer()->SetBackgroundBlur(
++        static_cast<float>(blur_radius_));
++    matte_window_->layer()->SetBackdropFilterQuality(0.33f);
++    matte_window_->layer()->SetBackdropFilterBounds(BuildCutoutPath());
++  } else {
++    matte_window_->layer()->SetBackgroundBlur(0.0f);
++    matte_window_->layer()->ClearBackdropFilterBounds();
++  }
++  matte_window_->layer()->SchedulePaint(gfx::Rect(size()));
++#endif
++}
++
++void CefBasicPanelView::DetachMatteWindow() {
++#if defined(USE_AURA)
++  if (!matte_window_) {
++    return;
++  }
++  matte_window_->Hide();
++  matte_window_->ClearProperty(views::kHostViewKey);
++  if (matte_window_->parent()) {
++    matte_window_->parent()->RemoveChild(matte_window_.get());
++  }
++#endif
++}
++
++void CefBasicPanelView::PaintMatteLayer(const ui::PaintContext& context) {
++#if defined(USE_AURA)
++  if (!matte_enabled_ || width() <= 0 || height() <= 0) {
++    return;
++  }
++  ui::PaintRecorder recorder(context, size());
++  SkPath path = BuildCutoutPath();
++  if (SkColorGetA(tint_color_) > 0) {
++    cc::PaintFlags fill;
++    fill.setAntiAlias(true);
++    fill.setStyle(cc::PaintFlags::kFill_Style);
++    fill.setColor(tint_color_);
++    recorder.canvas()->DrawPath(path, fill);
++  }
++  if (cutout_width_ > 0 && cutout_height_ > 0 &&
++      SkColorGetA(border_color_) > 0) {
++    cc::PaintFlags stroke;
++    stroke.setAntiAlias(true);
++    stroke.setStyle(cc::PaintFlags::kStroke_Style);
++    stroke.setStrokeWidth(1.0f);
++    stroke.setColor(border_color_);
++    SkRect cut = SkRect::MakeXYWH(cutout_x_, cutout_y_,
++                                  cutout_width_, cutout_height_);
++    SkRect border_rect = cut.makeOutset(0.5f, 0.5f);
++    float r = cutout_radius_ > 0
++                  ? static_cast<float>(cutout_radius_) + 0.5f
++                  : 0.0f;
++    recorder.canvas()->sk_canvas()->drawRRect(
++        SkRRect::MakeRectXY(border_rect, r, r), stroke);
++  }
++#else
++  (void)context;
++#endif
++}
++
+ BEGIN_METADATA(CefBasicPanelView)
+ END_METADATA
+diff --git a/libcef/browser/views/basic_panel_view.h b/libcef/browser/views/basic_panel_view.h
+index 39eebc967..666e6c0f3 100644
+--- a/libcef/browser/views/basic_panel_view.h
++++ b/libcef/browser/views/basic_panel_view.h
+@@ -1,13 +1,18 @@
+-// Copyright 2016 The Chromium Embedded Framework Authors. All rights reserved.
+-// Use of this source code is governed by a BSD-style license that can be found
+-// in the LICENSE file.
+-
+ #ifndef CEF_LIBCEF_BROWSER_VIEWS_BASIC_PANEL_VIEW_H_
+ #define CEF_LIBCEF_BROWSER_VIEWS_BASIC_PANEL_VIEW_H_
+ #pragma once
+ 
++#include <memory>
++
+ #include "cef/include/views/cef_panel_delegate.h"
+ #include "cef/libcef/browser/views/panel_view.h"
++#include "third_party/skia/include/core/SkColor.h"
++#include "third_party/skia/include/core/SkPath.h"
++
++#if defined(USE_AURA)
++#include "ui/aura/window.h"
++#include "ui/compositor/layer_delegate.h"
++#endif
+ 
+ class CefBasicPanelView : public CefPanelView<views::View, CefPanelDelegate> {
+   METADATA_HEADER(CefBasicPanelView, views::View)
+@@ -15,11 +20,49 @@ class CefBasicPanelView : public CefPanelView<views::View, CefPanelDelegate> {
+  public:
+   using ParentClass = CefPanelView<views::View, CefPanelDelegate>;
+ 
+-  // |cef_delegate| may be nullptr.
+   explicit CefBasicPanelView(CefPanelDelegate* cef_delegate);
++  ~CefBasicPanelView() override;
+ 
+   CefBasicPanelView(const CefBasicPanelView&) = delete;
+   CefBasicPanelView& operator=(const CefBasicPanelView&) = delete;
++
++  void SetViewportCutout(bool enabled,
++                         int x,
++                         int y,
++                         int width,
++                         int height,
++                         int corner_radius,
++                         int blur_radius,
++                         SkColor tint_color,
++                         SkColor border_color);
++
++  void AddedToWidget() override;
++  void RemovedFromWidget() override;
++  void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
++  void VisibilityChanged(views::View* starting_from, bool is_visible) override;
++
++  void PaintMatteLayer(const ui::PaintContext& context);
++
++ private:
++  SkPath BuildCutoutPath() const;
++  void SyncMatteWindow();
++  void DetachMatteWindow();
++
++  bool matte_enabled_ = false;
++  int cutout_x_ = 0;
++  int cutout_y_ = 0;
++  int cutout_width_ = 0;
++  int cutout_height_ = 0;
++  int cutout_radius_ = 0;
++  int blur_radius_ = 0;
++  SkColor tint_color_ = SK_ColorTRANSPARENT;
++  SkColor border_color_ = SK_ColorTRANSPARENT;
++
++#if defined(USE_AURA)
++  class MatteLayerDelegate;
++  std::unique_ptr<MatteLayerDelegate> matte_delegate_;
++  std::unique_ptr<aura::Window> matte_window_;
++#endif
+ };
+ 
+-#endif  // CEF_LIBCEF_BROWSER_VIEWS_BASIC_PANEL_VIEW_H_
++#endif
+diff --git a/libcef/browser/views/browser_view_impl.cc b/libcef/browser/views/browser_view_impl.cc
+index 738121ccf..ac3fde9e8 100644
+--- a/libcef/browser/views/browser_view_impl.cc
++++ b/libcef/browser/views/browser_view_impl.cc
+@@ -17,13 +17,103 @@
+ #include "cef/libcef/browser/views/window_impl.h"
+ #include "chrome/browser/profiles/profile.h"
+ #include "components/input/native_web_keyboard_event.h"
++#include "base/memory/ptr_util.h"
++#include "content/public/browser/navigation_handle.h"
++#include "content/public/browser/render_frame_host.h"
++#include "content/public/browser/render_widget_host_view.h"
++#include "content/public/browser/web_contents.h"
++#include "content/public/browser/web_contents_observer.h"
++#include "content/public/browser/web_contents_user_data.h"
++#include "mojo/public/cpp/bindings/associated_remote.h"
++#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
++#include "third_party/blink/public/mojom/page/display_cutout.mojom.h"
++#include "ui/compositor/layer.h"
+ #include "ui/content_accelerators/accelerator_util.h"
+ #include "ui/gfx/geometry/rounded_corners_f.h"
+ #include "ui/views/controls/native/native_view_host.h"
++#include "ui/views/controls/webview/web_contents_set_background_color.h"
+ #include "ui/views/view_utils.h"
++#include "ui/views/widget/widget.h"
+ 
+ namespace {
+ 
++constexpr int kBackdropBlurViewId = 0x43454642;
++
++class WebContentsSafeAreaObserver
++    : public content::WebContentsObserver,
++      public content::WebContentsUserData<WebContentsSafeAreaObserver> {
++ public:
++  static void SetForWebContents(content::WebContents* web_contents,
++                                const gfx::Insets& insets) {
++    if (!web_contents) {
++      return;
++    }
++    auto* observer = FromWebContents(web_contents);
++    if (!observer) {
++      observer = new WebContentsSafeAreaObserver(web_contents);
++      web_contents->SetUserData(UserDataKey(), base::WrapUnique(observer));
++    }
++    observer->SetInsets(insets);
++  }
++
++  WebContentsSafeAreaObserver(const WebContentsSafeAreaObserver&) = delete;
++  WebContentsSafeAreaObserver& operator=(const WebContentsSafeAreaObserver&) =
++      delete;
++
++  ~WebContentsSafeAreaObserver() override = default;
++
++  void SetInsets(const gfx::Insets& insets) {
++    insets_ = insets;
++    SendToFrame(web_contents()->GetPrimaryMainFrame());
++  }
++
++ private:
++  friend class content::WebContentsUserData<WebContentsSafeAreaObserver>;
++
++  explicit WebContentsSafeAreaObserver(content::WebContents* web_contents)
++      : content::WebContentsObserver(web_contents),
++        content::WebContentsUserData<WebContentsSafeAreaObserver>(
++            *web_contents) {}
++
++  void RenderFrameCreated(content::RenderFrameHost* rfh) override {
++    if (!rfh->GetParentOrOuterDocument()) {
++      SendToFrame(rfh);
++    }
++  }
++
++  void DidFinishNavigation(content::NavigationHandle* handle) override {
++    if (handle->IsInPrimaryMainFrame() && handle->HasCommitted()) {
++      SendToFrame(handle->GetRenderFrameHost());
++    }
++  }
++
++  void DidToggleFullscreenModeForTab(bool entered_fullscreen,
++                                     bool will_cause_resize) override {
++    SendToFrame(web_contents()->GetPrimaryMainFrame());
++  }
++
++  void SendToFrame(content::RenderFrameHost* rfh) {
++    if (!rfh || rfh->GetParentOrOuterDocument() || !rfh->IsRenderFrameLive()) {
++      return;
++    }
++    blink::AssociatedInterfaceProvider* provider =
++        rfh->GetRemoteAssociatedInterfaces();
++    if (!provider) {
++      return;
++    }
++    mojo::AssociatedRemote<blink::mojom::DisplayCutoutClient> client;
++    provider->GetInterface(client.BindNewEndpointAndPassReceiver());
++    client->SetSafeArea(web_contents()->IsFullscreen() ? gfx::Insets()
++                                                       : insets_);
++  }
++
++  gfx::Insets insets_;
++
++  WEB_CONTENTS_USER_DATA_KEY_DECL();
++};
++
++WEB_CONTENTS_USER_DATA_KEY_IMPL(WebContentsSafeAreaObserver);
++
+ std::optional<cef_gesture_command_t> GetGestureCommand(
+     ui::GestureEvent* event) {
+ #if BUILDFLAG(IS_MAC)
+@@ -170,10 +260,19 @@ CefBrowserViewImpl::~CefBrowserViewImpl() {
+ 
+ void CefBrowserViewImpl::WebContentsCreated(
+     content::WebContents* web_contents) {
++  if (background_color_.has_value() &&
++      CefColorGetA(*background_color_) == SK_AlphaTRANSPARENT &&
++      web_contents) {
++    views::WebContentsSetBackgroundColor::CreateForWebContentsWithColor(
++        web_contents, SK_ColorTRANSPARENT);
++  }
+   if (web_view()) {
+     web_view()->SetWebContents(web_contents);
+   }
++  ApplyBackgroundColor();
+   ApplyCornerRadius();
++  ApplyBackgroundBlur();
++  ApplySafeAreaInsets();
+ }
+ 
+ void CefBrowserViewImpl::WebContentsDestroyed(
+@@ -273,6 +372,9 @@ void CefBrowserViewImpl::SetCornerRadius(int radius) {
+   }
+   corner_radius_ = radius;
+   ApplyCornerRadius();
++  if (background_blur_.value_or(0) > 0) {
++    ApplyBackgroundBlur();
++  }
+ }
+ 
+ void CefBrowserViewImpl::ApplyCornerRadius() {
+@@ -291,6 +393,86 @@ void CefBrowserViewImpl::ApplyCornerRadius() {
+   }
+ }
+ 
++void CefBrowserViewImpl::SetBackgroundBlur(int radius) {
++  CEF_REQUIRE_VALID_RETURN_VOID();
++  if (radius < 0) {
++    radius = 0;
++  }
++  background_blur_ = radius;
++  ApplyBackgroundBlur();
++}
++
++void CefBrowserViewImpl::ApplyBackgroundBlur() {
++  views::WebView* view = web_view();
++  if (!view) {
++    return;
++  }
++  views::View* blur_view = nullptr;
++  for (views::View* child : view->children()) {
++    if (child->GetID() == kBackdropBlurViewId) {
++      blur_view = child;
++      break;
++    }
++  }
++  const int radius = background_blur_.value_or(0);
++  if (radius <= 0) {
++    if (blur_view) {
++      blur_view->SetVisible(false);
++      if (ui::Layer* layer = blur_view->layer()) {
++        layer->SetBackgroundBlur(0.0f);
++      }
++    }
++    return;
++  }
++  bool created = false;
++  if (!blur_view) {
++    auto new_view = std::make_unique<views::View>();
++    new_view->SetID(kBackdropBlurViewId);
++    new_view->SetCanProcessEventsWithinSubtree(false);
++    new_view->SetPaintToLayer();
++    blur_view = view->AddChildViewAt(std::move(new_view), 0);
++    created = true;
++  }
++  blur_view->SetVisible(true);
++  blur_view->SetBoundsRect(view->GetContentsBounds());
++  if (ui::Layer* layer = blur_view->layer()) {
++    layer->SetFillsBoundsOpaquely(false);
++    const float corner = static_cast<float>(corner_radius_.value_or(0));
++    layer->SetRoundedCornerRadius(gfx::RoundedCornersF(corner));
++    layer->SetIsFastRoundedCorner(corner > 0.0f);
++    layer->SetBackgroundBlur(static_cast<float>(radius));
++    layer->SetBackdropFilterQuality(0.33f);
++  }
++  if (created) {
++    if (views::Widget* widget = view->GetWidget()) {
++      widget->ReorderNativeViews();
++    }
++  }
++}
++
++void CefBrowserViewImpl::SetSafeAreaInsets(int top,
++                                           int left,
++                                           int bottom,
++                                           int right) {
++  CEF_REQUIRE_VALID_RETURN_VOID();
++  safe_area_insets_ = gfx::Insets::TLBR(
++      std::max(0, top), std::max(0, left),
++      std::max(0, bottom), std::max(0, right));
++  ApplySafeAreaInsets();
++}
++
++void CefBrowserViewImpl::ApplySafeAreaInsets() {
++  if (!safe_area_insets_.has_value()) {
++    return;
++  }
++  views::WebView* view = web_view();
++  if (!view || !view->web_contents()) {
++    return;
++  }
++  WebContentsSafeAreaObserver::SetForWebContents(view->web_contents(),
++                                                 *safe_area_insets_);
++}
++
+ cef_runtime_style_t CefBrowserViewImpl::GetRuntimeStyle() {
+   CEF_REQUIRE_VALID_RETURN(CEF_RUNTIME_STYLE_DEFAULT);
+   return IsAlloyStyle() ? CEF_RUNTIME_STYLE_ALLOY : CEF_RUNTIME_STYLE_CHROME;
+@@ -305,9 +487,38 @@ void CefBrowserViewImpl::RequestFocus() {
+ 
+ void CefBrowserViewImpl::SetBackgroundColor(cef_color_t color) {
+   CEF_REQUIRE_VALID_RETURN_VOID();
+-  ParentClass::SetBackgroundColor(color);
+-  if (web_view()) {
+-    web_view()->SetResizeBackgroundColor(color);
++  background_color_ = color;
++  if (CefColorGetA(color) == SK_AlphaTRANSPARENT) {
++    if (root_view()) {
++      root_view()->SetBackground(nullptr);
++    }
++  } else {
++    ParentClass::SetBackgroundColor(color);
++  }
++  ApplyBackgroundColor();
++}
++
++void CefBrowserViewImpl::ApplyBackgroundColor() {
++  if (!background_color_.has_value()) {
++    return;
++  }
++  const SkColor color = *background_color_;
++  views::WebView* view = web_view();
++  if (!view) {
++    return;
++  }
++  view->SetResizeBackgroundColor(color);
++  if (auto* holder = view->holder()) {
++    holder->SetBackgroundColorWhenClipped(color);
++  }
++  if (content::WebContents* wc = view->web_contents()) {
++    if (SkColorGetA(color) == SK_AlphaTRANSPARENT) {
++      views::WebContentsSetBackgroundColor::CreateForWebContentsWithColor(
++          wc, SK_ColorTRANSPARENT);
++    }
++    if (auto* rwhv = wc->GetRenderWidgetHostView()) {
++      rwhv->SetBackgroundColor(color);
++    }
+   }
+ }
+ 
+@@ -372,6 +583,11 @@ void CefBrowserViewImpl::AddedToWidget() {
+ 
+   // May call Widget::ThemeChanged().
+   cef_widget_->AddAssociatedProfile(profile_);
++  ApplyBackgroundColor();
++  ApplyCornerRadius();
++  ApplyBackgroundBlur();
++  ApplySafeAreaInsets();
++  widget->ReorderNativeViews();
+ }
+ 
+ void CefBrowserViewImpl::RemovedFromWidget() {
+@@ -385,6 +601,7 @@ void CefBrowserViewImpl::OnBoundsChanged() {
+     on_bounds_changed_.Run();
+   }
+   ApplyCornerRadius();
++  ApplyBackgroundBlur();
+ }
+ 
+ bool CefBrowserViewImpl::OnGestureEvent(ui::GestureEvent* event) {
+diff --git a/libcef/browser/views/browser_view_impl.h b/libcef/browser/views/browser_view_impl.h
+index d24861a60..b3a4c011a 100644
+--- a/libcef/browser/views/browser_view_impl.h
++++ b/libcef/browser/views/browser_view_impl.h
+@@ -17,6 +17,7 @@
+ #include "cef/libcef/browser/browser_host_base.h"
+ #include "cef/libcef/browser/views/browser_view_view.h"
+ #include "cef/libcef/browser/views/view_impl.h"
++#include "ui/gfx/geometry/insets.h"
+ #include "ui/views/controls/webview/unhandled_keyboard_event_handler.h"
+ 
+ class CefBrowserHostBase;
+@@ -73,6 +74,8 @@ class CefBrowserViewImpl
+   CefRefPtr<CefView> GetChromeToolbar() override;
+   void SetPreferAccelerators(bool prefer_accelerators) override;
+   void SetCornerRadius(int radius) override;
++  void SetBackgroundBlur(int radius) override;
++  void SetSafeAreaInsets(int top, int left, int bottom, int right) override;
+   cef_runtime_style_t GetRuntimeStyle() override;
+ 
+   // CefView methods:
+@@ -138,7 +141,10 @@ class CefBrowserViewImpl
+ 
+   void DisassociateFromWidget();
+ 
++  void ApplyBackgroundColor();
+   void ApplyCornerRadius();
++  void ApplyBackgroundBlur();
++  void ApplySafeAreaInsets();
+ 
+   // True if the browser is Alloy style, otherwise Chrome style.
+   const bool is_alloy_style_;
+@@ -155,7 +161,10 @@ class CefBrowserViewImpl
+   raw_ptr<CefWidget> cef_widget_ = nullptr;
+   raw_ptr<Profile> profile_ = nullptr;
+ 
++  std::optional<cef_color_t> background_color_;
+   std::optional<int> corner_radius_;
++  std::optional<int> background_blur_;
++  std::optional<gfx::Insets> safe_area_insets_;
+ 
+   base::WeakPtrFactory<CefBrowserViewImpl> weak_ptr_factory_;
+ 
+diff --git a/libcef/browser/views/layout_util.cc b/libcef/browser/views/layout_util.cc
+index 712cfa963..0b65b30a7 100644
+--- a/libcef/browser/views/layout_util.cc
++++ b/libcef/browser/views/layout_util.cc
+@@ -42,6 +42,11 @@ class UserData : public base::SupportsUserData::Data {
+                             base::WrapUnique(new UserData(cef_layout)));
+   }
+ 
++  static void Clear(views::View* owner_view) {
++    DCHECK(owner_view);
++    owner_view->RemoveUserData(UserDataKey());
++  }
++
+  private:
+   friend std::default_delete<UserData>;
+ 
+@@ -71,4 +76,8 @@ void Assign(CefRefPtr<CefLayout> layout, views::View* owner_view) {
+   return UserData::Assign(layout, owner_view);
+ }
+ 
++void Clear(views::View* owner_view) {
++  UserData::Clear(owner_view);
++}
++
+ }  // namespace layout_util
+diff --git a/libcef/browser/views/layout_util.h b/libcef/browser/views/layout_util.h
+index ef7fec1d6..213d76ca0 100644
+--- a/libcef/browser/views/layout_util.h
++++ b/libcef/browser/views/layout_util.h
+@@ -25,6 +25,7 @@ CefRefPtr<CefLayout> GetFor(const views::View* owner_view);
+ // Assign ownership of |layout| to |owner_view|. If a CefLayout is already
+ // associated with |owner_view| it will be invalidated.
+ void Assign(CefRefPtr<CefLayout> layout, views::View* owner_view);
++void Clear(views::View* owner_view);
+ 
+ }  // namespace layout_util
+ 
+diff --git a/libcef/browser/views/panel_impl.h b/libcef/browser/views/panel_impl.h
+index 446490c5b..2122d0ba2 100644
+--- a/libcef/browser/views/panel_impl.h
++++ b/libcef/browser/views/panel_impl.h
+@@ -15,6 +15,7 @@
+ #include "cef/libcef/browser/views/fill_layout_impl.h"
+ #include "cef/libcef/browser/views/layout_util.h"
+ #include "cef/libcef/browser/views/view_impl.h"
++#include "ui/views/widget/widget.h"
+ 
+ // Helpers for template boiler-plate.
+ #define CEF_PANEL_IMPL_T CEF_VIEW_IMPL_T
+@@ -33,6 +34,16 @@ CEF_PANEL_IMPL_T class CefPanelImpl : public CEF_VIEW_IMPL_D {
+   CefRefPtr<CefFillLayout> SetToFillLayout() override;
+   CefRefPtr<CefBoxLayout> SetToBoxLayout(
+       const CefBoxLayoutSettings& settings) override;
++  void ClearLayout() override;
++  void SetViewportCutout(bool enabled,
++                         int x,
++                         int y,
++                         int width,
++                         int height,
++                         int corner_radius,
++                         int blur_radius,
++                         cef_color_t tint_color,
++                         cef_color_t border_color) override {}
+   CefRefPtr<CefLayout> GetLayout() override;
+   void Layout() override;
+   void AddChildView(CefRefPtr<CefView> view) override;
+@@ -95,6 +106,12 @@ CEF_PANEL_IMPL_T CefRefPtr<CefBoxLayout> CEF_PANEL_IMPL_D::SetToBoxLayout(
+   return CefBoxLayoutImpl::Create(settings, ParentClass::content_view());
+ }
+ 
++CEF_PANEL_IMPL_T void CEF_PANEL_IMPL_D::ClearLayout() {
++  CEF_REQUIRE_VALID_RETURN_VOID();
++  layout_util::Clear(ParentClass::content_view());
++  ParentClass::content_view()->SetLayoutManager(nullptr);
++}
++
+ CEF_PANEL_IMPL_T CefRefPtr<CefLayout> CEF_PANEL_IMPL_D::GetLayout() {
+   CEF_REQUIRE_VALID_RETURN(nullptr);
+   return layout_util::GetFor(ParentClass::content_view());
+@@ -118,6 +135,9 @@ CEF_PANEL_IMPL_T void CEF_PANEL_IMPL_D::AddChildView(CefRefPtr<CefView> view) {
+                        : view_util::PassOwnership(view).release();
+   DCHECK(view_ptr);
+   ParentClass::content_view()->AddChildView(view_ptr);
++  if (views::Widget* widget = ParentClass::content_view()->GetWidget()) {
++    widget->ReorderNativeViews();
++  }
+ }
+ 
+ CEF_PANEL_IMPL_T void CEF_PANEL_IMPL_D::AddChildViewAt(CefRefPtr<CefView> view,
+@@ -139,6 +159,9 @@ CEF_PANEL_IMPL_T void CEF_PANEL_IMPL_D::AddChildViewAt(CefRefPtr<CefView> view,
+                        : view_util::PassOwnership(view).release();
+   DCHECK(view_ptr);
+   ParentClass::content_view()->AddChildViewAt(view_ptr, index);
++  if (views::Widget* widget = ParentClass::content_view()->GetWidget()) {
++    widget->ReorderNativeViews();
++  }
+ }
+ 
+ CEF_PANEL_IMPL_T void CEF_PANEL_IMPL_D::ReorderChildView(
+@@ -160,6 +183,9 @@ CEF_PANEL_IMPL_T void CEF_PANEL_IMPL_D::ReorderChildView(
+   }
+ 
+   ParentClass::content_view()->ReorderChildView(view_ptr, index);
++  if (views::Widget* widget = ParentClass::content_view()->GetWidget()) {
++    widget->ReorderNativeViews();
++  }
+ }
+ 
+ CEF_PANEL_IMPL_T void CEF_PANEL_IMPL_D::RemoveChildView(
+diff --git a/patch/patch.cfg b/patch/patch.cfg
+index 036a0ddc3..78673dcd3 100644
+--- a/patch/patch.cfg
++++ b/patch/patch.cfg
+@@ -893,5 +893,8 @@ patches = [
+     # Fix crash during shutdown in TaskManagerImpl::OnReceivedMemoryDump with
+     # multi-threaded-message-loop.
+     'name': 'chrome_browser_task_manager',
++  },
++  {
++    'name': 'blink_safe_area_viewport',
+   }
+ ]
+diff --git a/patch/patches/blink_safe_area_viewport.patch b/patch/patches/blink_safe_area_viewport.patch
+new file mode 100644
+index 000000000..4408f6768
+--- /dev/null
++++ b/patch/patches/blink_safe_area_viewport.patch
+@@ -0,0 +1,272 @@
++diff --git content/browser/renderer_host/render_widget_host_view_mac.mm content/browser/renderer_host/render_widget_host_view_mac.mm
++index f4f60732d1eb71c6667437270a800581d6a115ca..d4de3792a560c39fec8dac8f9b3ee5eaebc605b4 100644
++--- content/browser/renderer_host/render_widget_host_view_mac.mm
+++++ content/browser/renderer_host/render_widget_host_view_mac.mm
++@@ -1751,8 +1751,7 @@ std::optional<SkColor> RenderWidgetHostViewMac::GetBackgroundColor() {
++   // where views are initialized as having a transparent background
++   // inappropriately.
++   // https://crbug.com/735407
++-  std::optional<SkColor> color = RenderWidgetHostViewBase::GetBackgroundColor();
++-  return (color && *color == SK_ColorTRANSPARENT) ? SK_ColorWHITE : color;
+++  return RenderWidgetHostViewBase::GetBackgroundColor();
++ }
++ 
++ viz::SurfaceId RenderWidgetHostViewMac::GetFallbackSurfaceIdForTesting() const {
++diff --git third_party/blink/renderer/controller/blink_initializer.cc third_party/blink/renderer/controller/blink_initializer.cc
++index 4d1f2acf58e43bf8d5e19294133647387f03cd0a..85a3960c6a4635e482d8affb37f85222925b9a8d 100644
++--- third_party/blink/renderer/controller/blink_initializer.cc
+++++ third_party/blink/renderer/controller/blink_initializer.cc
++@@ -324,11 +324,9 @@ void BlinkInitializer::RegisterMemoryWatchers(Platform* platform) {
++ }
++ 
++ void BlinkInitializer::InitLocalFrame(LocalFrame& frame) const {
++-  if (RuntimeEnabledFeatures::DisplayCutoutAPIEnabled()) {
++-    frame.GetInterfaceRegistry()->AddAssociatedInterface(
++-        BindRepeating(&DisplayCutoutClientImpl::BindMojoReceiver,
++-                      WrapWeakPersistent(&frame)));
++-  }
+++  frame.GetInterfaceRegistry()->AddAssociatedInterface(
+++      BindRepeating(&DisplayCutoutClientImpl::BindMojoReceiver,
+++                    WrapWeakPersistent(&frame)));
++   frame.GetInterfaceRegistry()->AddAssociatedInterface(BindRepeating(
++       &DevToolsFrontendImpl::BindMojoRequest, WrapWeakPersistent(&frame)));
++ 
++diff --git third_party/blink/renderer/core/css/resolver/style_resolver.cc third_party/blink/renderer/core/css/resolver/style_resolver.cc
++index b65a7e01678cfa5afba69dde6f1ea287b088e9cf..0813f1e1690b0e831a430b96f6b6b4b8d39ad1b8 100644
++--- third_party/blink/renderer/core/css/resolver/style_resolver.cc
+++++ third_party/blink/renderer/core/css/resolver/style_resolver.cc
++@@ -34,6 +34,7 @@
++ 
++ #include "base/containers/adapters.h"
++ #include "base/memory/stack_allocated.h"
+++#include "base/numerics/safe_conversions.h"
++ #include "base/types/optional_util.h"
++ #include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom-blink.h"
++ #include "third_party/blink/public/web/web_print_page_description.h"
++@@ -1287,6 +1288,8 @@ void StyleResolver::MatchAllRules(StyleResolverState& state,
++   }
++ }
++ 
+++CORE_EXPORT gfx::InsetsF GetViewportSafeAreaInsets(const Page* page);
+++
++ const ComputedStyle* StyleResolver::StyleForViewport() {
++   ComputedStyleBuilder builder = InitialStyleBuilderForElement();
++ 
++@@ -1295,12 +1298,43 @@ const ComputedStyle* StyleResolver::StyleForViewport() {
++   builder.SetDisplay(EDisplay::kBlock);
++   builder.SetPosition(EPosition::kAbsolute);
++ 
++-  // Document::InheritHtmlAndBodyElementStyles will set the final overflow
++-  // style values, but they should initially be auto to avoid premature
++-  // scrollbar removal in PaintLayerScrollableArea::UpdateAfterStyleChange.
++   builder.SetOverflowX(EOverflow::kAuto);
++   builder.SetOverflowY(EOverflow::kAuto);
++ 
+++  if (!GetDocument().Printing() && GetDocument().GetFrame() &&
+++      GetDocument().GetFrame()->IsOutermostMainFrame() &&
+++      !Fullscreen::FullscreenElementFrom(GetDocument())) {
+++    const gfx::InsetsF safe_area =
+++        GetViewportSafeAreaInsets(GetDocument().GetPage());
+++    if (!safe_area.IsEmpty()) {
+++      builder.SetBoxSizing(EBoxSizing::kBorderBox);
+++      const int top = base::ClampRound(safe_area.top());
+++      const int left = base::ClampRound(safe_area.left());
+++      const int bottom = base::ClampRound(safe_area.bottom());
+++      const int right = base::ClampRound(safe_area.right());
+++      if (top > 0) {
+++        builder.SetBorderTopStyle(EBorderStyle::kSolid);
+++        builder.SetBorderTopColor(StyleColor(Color::kTransparent));
+++        builder.SetBorderTopWidth(top);
+++      }
+++      if (left > 0) {
+++        builder.SetBorderLeftStyle(EBorderStyle::kSolid);
+++        builder.SetBorderLeftColor(StyleColor(Color::kTransparent));
+++        builder.SetBorderLeftWidth(left);
+++      }
+++      if (bottom > 0) {
+++        builder.SetBorderBottomStyle(EBorderStyle::kSolid);
+++        builder.SetBorderBottomColor(StyleColor(Color::kTransparent));
+++        builder.SetBorderBottomWidth(bottom);
+++      }
+++      if (right > 0) {
+++        builder.SetBorderRightStyle(EBorderStyle::kSolid);
+++        builder.SetBorderRightColor(StyleColor(Color::kTransparent));
+++        builder.SetBorderRightWidth(right);
+++      }
+++    }
+++  }
+++
++   GetDocument().GetStyleEngine().ApplyVisionDeficiencyStyle(builder);
++ 
++   return builder.TakeStyle();
++diff --git third_party/blink/renderer/core/dom/element.cc third_party/blink/renderer/core/dom/element.cc
++index f8376b740289fb19c1b4d54c4a22a5576beede0e..e7421293102a2880e0e4d6bc194687739a829c97 100644
++--- third_party/blink/renderer/core/dom/element.cc
+++++ third_party/blink/renderer/core/dom/element.cc
++@@ -2633,8 +2633,11 @@ int Element::clientWidth() {
++                    layout_view->StyleRef())
++             .Round();
++       }
+++      const int border_w =
+++          (layout_view->BorderOutsets().HorizontalSum()).Round();
++       return AdjustForAbsoluteZoom::AdjustInt(
++-          layout_view->GetLayoutSize(kExcludeScrollbars).width(),
+++          std::max(0, layout_view->GetLayoutSize(kExcludeScrollbars).width() -
+++                          border_w),
++           layout_view->StyleRef());
++     }
++   }
++@@ -2675,8 +2678,11 @@ int Element::clientHeight() {
++                    layout_view->StyleRef())
++             .Round();
++       }
+++      const int border_h =
+++          (layout_view->BorderOutsets().VerticalSum()).Round();
++       return AdjustForAbsoluteZoom::AdjustInt(
++-          layout_view->GetLayoutSize(kExcludeScrollbars).height(),
+++          std::max(0, layout_view->GetLayoutSize(kExcludeScrollbars).height() -
+++                          border_h),
++           layout_view->StyleRef());
++     }
++   }
++diff --git third_party/blink/renderer/core/frame/display_cutout_client_impl.cc third_party/blink/renderer/core/frame/display_cutout_client_impl.cc
++index a87d2ead82bde87c434028b4dc868406c21b719d..61e03b7c0bdbd1e08d2412798856e823f698cb7e 100644
++--- third_party/blink/renderer/core/frame/display_cutout_client_impl.cc
+++++ third_party/blink/renderer/core/frame/display_cutout_client_impl.cc
++@@ -33,7 +33,9 @@ void DisplayCutoutClientImpl::BindMojoReceiver(
++ }
++ 
++ void DisplayCutoutClientImpl::SetSafeArea(const gfx::Insets& safe_area) {
++-  frame_->GetDocument()->GetPage()->SetMaxSafeAreaInsets(frame_, safe_area);
+++  if (frame_ && frame_->GetDocument() && frame_->GetDocument()->GetPage()) {
+++    frame_->GetDocument()->GetPage()->SetMaxSafeAreaInsets(frame_, safe_area);
+++  }
++ }
++ 
++ void DisplayCutoutClientImpl::Trace(Visitor* visitor) const {
++diff --git third_party/blink/renderer/core/frame/local_frame_view.cc third_party/blink/renderer/core/frame/local_frame_view.cc
++index e4a85866e08c05d4f03eafa8b11e98b8bf2a6895..51e17a31e19bcde686b4e83b22f17e37766ac59e 100644
++--- third_party/blink/renderer/core/frame/local_frame_view.cc
+++++ third_party/blink/renderer/core/frame/local_frame_view.cc
++@@ -923,6 +923,10 @@ gfx::SizeF LocalFrameView::SmallViewportSizeForViewportUnits() const {
++     return gfx::SizeF();
++ 
++   gfx::SizeF layout_size(layout_view->GetLayoutSize(kIncludeScrollbars));
+++  layout_size.Enlarge(
+++      -(layout_view->BorderOutsets().HorizontalSum()).ToFloat(),
+++      -(layout_view->BorderOutsets().VerticalSum()).ToFloat());
+++  layout_size.SetToMax(gfx::SizeF(0, 0));
++   layout_size.InvScale(zoom);
++   return layout_size;
++ }
++@@ -969,6 +973,12 @@ gfx::SizeF LocalFrameView::ViewportSizeForMediaQueries() const {
++     }
++   }
++   gfx::SizeF viewport_size(layout_size_);
+++  if (const LayoutView* layout_view = GetLayoutView()) {
+++    viewport_size.Enlarge(
+++        -(layout_view->BorderOutsets().HorizontalSum()).ToFloat(),
+++        -(layout_view->BorderOutsets().VerticalSum()).ToFloat());
+++    viewport_size.SetToMax(gfx::SizeF(0, 0));
+++  }
++   if (!frame_->GetDocument()->Printing()) {
++     viewport_size.Scale(1 / GetFrame().LayoutZoomFactor());
++   }
++diff --git third_party/blink/renderer/core/layout/layout_view.cc third_party/blink/renderer/core/layout/layout_view.cc
++index 50714c854849c5a4858431fce7e935ae1acf6d52..9af84a4f270d36994076d55c25afae59532d168c 100644
++--- third_party/blink/renderer/core/layout/layout_view.cc
+++++ third_party/blink/renderer/core/layout/layout_view.cc
++@@ -831,6 +831,8 @@ LayoutUnit LayoutView::ViewLogicalHeightForPercentages() const {
++     size = initial_containing_block_size_for_printing_;
++   } else {
++     size = PhysicalSize(GetLayoutSize(kExcludeScrollbars));
+++    size.width = (size.width - BorderOutsets().HorizontalSum()).ClampNegativeToZero();
+++    size.height = (size.height - BorderOutsets().VerticalSum()).ClampNegativeToZero();
++   }
++   return IsHorizontalWritingMode() ? size.height : size.width;
++ }
++diff --git third_party/blink/renderer/core/page/page.cc third_party/blink/renderer/core/page/page.cc
++index 3b12e2235ded5b10f79eaf1e2dadf669357d558f..96b8bd3cf43c4f308f6d820e4eb2747aa3f931eb 100644
++--- third_party/blink/renderer/core/page/page.cc
+++++ third_party/blink/renderer/core/page/page.cc
++@@ -85,6 +85,8 @@
++ #include "third_party/blink/renderer/core/page/spatial_navigation_controller.h"
++ #include "third_party/blink/renderer/core/page/validation_message_client_impl.h"
++ #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
+++#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
+++#include "third_party/blink/renderer/platform/heap/persistent.h"
++ #include "third_party/blink/renderer/core/preferences/navigator_preferences.h"
++ #include "third_party/blink/renderer/core/preferences/preference_manager.h"
++ #include "third_party/blink/renderer/core/preferences/preference_overrides.h"
++@@ -980,31 +982,62 @@ void Page::UpdateSafeAreaInsetWithBrowserControls(
++   }
++ }
++ 
+++namespace {
+++
+++using ViewportSafeAreaMap = GCedHeapHashMap<WeakMember<const Page>, gfx::InsetsF>;
+++
+++ViewportSafeAreaMap& GetViewportSafeAreaMap() {
+++  DEFINE_STATIC_LOCAL(Persistent<ViewportSafeAreaMap>, map,
+++                      (MakeGarbageCollected<ViewportSafeAreaMap>()));
+++  return *map;
+++}
+++
+++}
+++
+++CORE_EXPORT gfx::InsetsF GetViewportSafeAreaInsets(const Page* page) {
+++  if (!page) {
+++    return gfx::InsetsF();
+++  }
+++  auto it = GetViewportSafeAreaMap().find(page);
+++  return it != GetViewportSafeAreaMap().end() ? it->value : gfx::InsetsF();
+++}
+++
++ void Page::SetMaxSafeAreaInsets(LocalFrame* setter, gfx::Insets max_safe_area) {
++-  // Update |scaled_max_safe_area_insets_| first.
+++  const gfx::InsetsF prev_insets = GetViewportSafeAreaInsets(this);
++   float dsf = chrome_client_->GetScreenInfo(*setter).device_scale_factor;
++   gfx::InsetsF scaled_max_safe_area_insets =
++       ScaleInsets(gfx::InsetsF(max_safe_area), dsf);
++ 
++   if (scaled_max_safe_area_insets_ != scaled_max_safe_area_insets) {
++     scaled_max_safe_area_insets_ = scaled_max_safe_area_insets;
++-
++-    // Update Chrome client CC for MaxSafeAreaInsets change.
++     GetChromeClient().DidUpdateMaxSafeAreaInsets(scaled_max_safe_area_insets);
++   }
++ 
++-  // When the SAI is changed when DynamicSafeAreaInsetsEnabled, the SAI for the
++-  // main frame needs to be set per browser controls state.
++   if (GetSettings().GetDynamicSafeAreaInsetsEnabled() &&
++       setter->IsMainFrame()) {
++-    // |scaled_max_safe_area_insets_| should be updated before
++-    // UpdateSafeAreaInsetWithBrowserControls() is called.
++     UpdateSafeAreaInsetWithBrowserControls(GetBrowserControls(), true);
++   } else {
++     applied_safe_area_insets_ = scaled_max_safe_area_insets_;
++-    SetSafeAreaEnvVariables(setter, scaled_max_safe_area_insets_);
+++    SetSafeAreaEnvVariables(setter, gfx::InsetsF());
+++  }
+++  SetSafeAreaMaxEnvVariables(setter, gfx::InsetsF());
+++  GetViewportSafeAreaMap().Set(this, applied_safe_area_insets_);
+++
+++  if (setter->IsOutermostMainFrame()) {
+++    if (Document* doc = setter->GetDocument()) {
+++      doc->GetStyleEngine().MarkViewportStyleDirty();
+++      if (prev_insets != applied_safe_area_insets_) {
+++        if (LayoutView* lv = doc->GetLayoutView()) {
+++          lv->SetNeedsLayoutAndFullPaintInvalidation("safe-area-insets");
+++        }
+++        doc->LayoutViewportWasResized();
+++      }
+++    }
+++    if (LocalFrameView* view = setter->View()) {
+++      view->InvalidateLayoutForViewportConstrainedObjects();
+++      view->ScheduleAnimation();
+++    }
++   }
++-  SetSafeAreaMaxEnvVariables(setter, scaled_max_safe_area_insets_);
++ }
++ 
++ void Page::SettingsChanged(ChangeType change_type) {
+diff --git a/patch/patches/webkit_move_pip.patch b/patch/patches/webkit_move_pip.patch
+index 264020218..50743b276 100644
+--- a/patch/patches/webkit_move_pip.patch
++++ b/patch/patches/webkit_move_pip.patch
+@@ -155,7 +155,7 @@ index 6665c611f116832b8d441fedf8bc63bbb2ad8359..9fbc02c740cd25016c9822dbcea07443
+    base::ObserverList<WebViewObserver> observers_;
+  };
+ diff --git third_party/blink/renderer/core/frame/local_dom_window.cc third_party/blink/renderer/core/frame/local_dom_window.cc
+-index 22771edd0624ced5031083baa478e8ccfc02fafa..73708de21c0b3afa0f1d6cf687ec1d6919314e37 100644
++index 22771edd0624ced5031083baa478e8ccfc02fafa..8a55a413bbcbf050636c3d6d8bed6a94ec589ac5 100644
+ --- third_party/blink/renderer/core/frame/local_dom_window.cc
+ +++ third_party/blink/renderer/core/frame/local_dom_window.cc
+ @@ -51,6 +51,7 @@
+@@ -174,7 +174,25 @@ index 22771edd0624ced5031083baa478e8ccfc02fafa..73708de21c0b3afa0f1d6cf687ec1d69
+  #include "third_party/blink/renderer/core/html/custom/custom_element_registry.h"
+  #include "third_party/blink/renderer/core/html/fenced_frame/fence.h"
+  #include "third_party/blink/renderer/core/html/forms/form_controller.h"
+-@@ -1985,8 +1987,9 @@ void LocalDOMWindow::moveBy(int x, int y) const {
++@@ -1670,7 +1672,16 @@ gfx::Size LocalDOMWindow::GetViewportSize() const {
++     }
++   }
++ 
++-  return document()->View()->Size();
+++  gfx::Size size = document()->View()->Size();
+++  if (const LayoutView* layout_view = document()->GetLayoutView()) {
+++    const int bw =
+++        (layout_view->BorderOutsets().HorizontalSum()).Round();
+++    const int bh =
+++        (layout_view->BorderOutsets().VerticalSum()).Round();
+++    size.set_width(std::max(0, size.width() - bw));
+++    size.set_height(std::max(0, size.height() - bh));
+++  }
+++  return size;
++ }
++ 
++ int LocalDOMWindow::innerHeight() const {
++@@ -1985,8 +1996,9 @@ void LocalDOMWindow::moveBy(int x, int y) const {
+      return;
+    }
+  
+@@ -185,7 +203,7 @@ index 22771edd0624ced5031083baa478e8ccfc02fafa..73708de21c0b3afa0f1d6cf687ec1d69
+  
+    LocalFrame* frame = GetFrame();
+    Page* page = frame->GetPage();
+-@@ -2006,8 +2009,9 @@ void LocalDOMWindow::moveTo(int x, int y) const {
++@@ -2006,8 +2018,9 @@ void LocalDOMWindow::moveTo(int x, int y) const {
+      return;
+    }
+  
+@@ -196,7 +214,7 @@ index 22771edd0624ced5031083baa478e8ccfc02fafa..73708de21c0b3afa0f1d6cf687ec1d69
+  
+    LocalFrame* frame = GetFrame();
+    Page* page = frame->GetPage();
+-@@ -2030,7 +2034,8 @@ void LocalDOMWindow::resizeBy(int x,
++@@ -2030,7 +2043,8 @@ void LocalDOMWindow::resizeBy(int x,
+    }
+  
+    if (IsPictureInPictureWindow()) {
+@@ -206,7 +224,7 @@ index 22771edd0624ced5031083baa478e8ccfc02fafa..73708de21c0b3afa0f1d6cf687ec1d69
+        exception_state.ThrowDOMException(
+            DOMExceptionCode::kNotAllowedError,
+            "resizeBy() requires user activation in document picture-in-picture");
+-@@ -2058,7 +2063,8 @@ void LocalDOMWindow::resizeTo(int width,
++@@ -2058,7 +2072,8 @@ void LocalDOMWindow::resizeTo(int width,
+    }
+  
+    if (IsPictureInPictureWindow()) {
+@@ -216,7 +234,7 @@ index 22771edd0624ced5031083baa478e8ccfc02fafa..73708de21c0b3afa0f1d6cf687ec1d69
+        exception_state.ThrowDOMException(
+            DOMExceptionCode::kNotAllowedError,
+            "resizeTo() requires user activation in document picture-in-picture");
+-@@ -2501,6 +2507,12 @@ DOMWindow* LocalDOMWindow::openPictureInPictureWindow(
++@@ -2501,6 +2516,12 @@ DOMWindow* LocalDOMWindow::openPictureInPictureWindow(
+        To<LocalDOMWindow>(result.frame->DomWindow());
+    pip_dom_window->SetIsPictureInPictureWindow();
+  

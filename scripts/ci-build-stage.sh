@@ -176,11 +176,17 @@ if ! patch -d "$build_dir/chromium/src/cef" -p1 --forward --batch \
   grep -q SetCornerRadius \
     "$build_dir/chromium/src/cef/include/views/cef_browser_view.h"
 fi
+if ! patch -d "$build_dir/chromium/src/cef" -p1 --forward --batch \
+  < "$repo_root/patches/floating-overlays.patch"; then
+  grep -q SetViewportCutout \
+    "$build_dir/chromium/src/cef/include/views/cef_panel.h"
+fi
 python3 "$build_dir/chromium/src/cef/tools/version_manager.py" -c --force-update
 
 # Generate CEF wrapper sources, apply CEF patches to Chromium, and generate GN files.
 (
   cd "$build_dir/chromium/src/cef"
+  python3 tools/patch_updater.py --patch webkit_move_pip --patch blink_safe_area_viewport
   python3 tools/gclient_hook.py
 )
 rm -rf "$build_dir/chromium/src/out/Debug_GN_"*
@@ -304,12 +310,18 @@ if [[ "$compile_rc" -eq 0 ]]; then
     nm "$lib" | grep -q ' ff_h264_decoder$'
     nm "$lib" | grep -q ' ff_aac_decoder$'
     nm "$lib" | grep -q 'SetCornerRadius'
+    nm "$lib" | grep -q 'SetBackgroundBlur'
+    nm "$lib" | grep -q 'SetSafeAreaInsets'
+    nm "$lib" | grep -q 'SetViewportCutout'
   else
     lib="$build_dir/chromium/src/out/$out_subdir/Chromium Embedded Framework.framework/Chromium Embedded Framework"
     test -f "$lib"
     nm "$lib" | grep -Eq ' _?ff_h264_decoder$'
     nm "$lib" | grep -Eq ' _?ff_aac_decoder$'
     nm "$lib" | grep -q 'SetCornerRadius'
+    nm "$lib" | grep -q 'SetBackgroundBlur'
+    nm "$lib" | grep -q 'SetSafeAreaInsets'
+    nm "$lib" | grep -q 'SetViewportCutout'
   fi
 
   dist="$build_dir/chromium/src/cef/binary_distrib"

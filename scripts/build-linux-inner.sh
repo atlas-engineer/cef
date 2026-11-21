@@ -49,7 +49,17 @@ if ! patch -d /cef-build/chromium/src/cef -p1 --forward --batch \
   grep -q SetCornerRadius \
     /cef-build/chromium/src/cef/include/views/cef_browser_view.h
 fi
+if ! patch -d /cef-build/chromium/src/cef -p1 --forward --batch \
+  < /cef-repo/patches/floating-overlays.patch; then
+  grep -q SetViewportCutout \
+    /cef-build/chromium/src/cef/include/views/cef_panel.h
+fi
 python3 /cef-build/chromium/src/cef/tools/version_manager.py -c --force-update
+(
+  cd /cef-build/chromium/src/cef
+  python3 tools/patch_updater.py --patch webkit_move_pip --patch blink_safe_area_viewport
+  python3 tools/gclient_hook.py
+)
 
 chmod a+x /cef-build/chromium/src/third_party/node/linux/node-linux-x64/bin/node
 
@@ -80,3 +90,6 @@ test -n "$lib"
 nm "$lib" | grep -q ' ff_h264_decoder$'
 nm "$lib" | grep -q ' ff_aac_decoder$'
 nm "$lib" | grep -q 'SetCornerRadius'
+nm "$lib" | grep -q 'SetBackgroundBlur'
+nm "$lib" | grep -q 'SetSafeAreaInsets'
+nm "$lib" | grep -q 'SetViewportCutout'

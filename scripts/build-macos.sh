@@ -41,7 +41,17 @@ if ! patch -d "$build_dir/chromium/src/cef" -p1 --forward --batch \
   grep -q SetCornerRadius \
     "$build_dir/chromium/src/cef/include/views/cef_browser_view.h"
 fi
+if ! patch -d "$build_dir/chromium/src/cef" -p1 --forward --batch \
+  < "$root/patches/floating-overlays.patch"; then
+  grep -q SetViewportCutout \
+    "$build_dir/chromium/src/cef/include/views/cef_panel.h"
+fi
 python3 "$build_dir/chromium/src/cef/tools/version_manager.py" -c --force-update
+(
+  cd "$build_dir/chromium/src/cef"
+  python3 tools/patch_updater.py --patch webkit_move_pip --patch blink_safe_area_viewport
+  python3 tools/gclient_hook.py
+)
 
 if [[ "$(sysctl -n hw.memsize)" -le 8589934592 ]]; then
   export NINJA_CORE_LIMIT=3
@@ -76,7 +86,7 @@ version=${version%_macosarm64_minimal}
 notes=$(cat <<EOF
 CEF ${version} for macOS arm64, built with proprietary_codecs and ffmpeg_branding=Chrome from c1a097eaa7738483abe2ea9d6297a937d6a884c0.
 
-Adds CefBrowserView::SetCornerRadius. The radius clips the hosted web content so the view background shows in the corners.
+Adds CefBrowserView::SetCornerRadius, CefBrowserView::SetBackgroundBlur, CefBrowserView::SetSafeAreaInsets, CefPanel::ClearLayout, and CefPanel::SetViewportCutout.
 EOF
 )
 if gh release view "$version" --repo atlas-engineer/cef >/dev/null 2>&1; then

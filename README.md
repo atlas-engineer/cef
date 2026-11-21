@@ -5,8 +5,10 @@ Binary distributions of Chromium Embedded Framework built with H.264 and AAC
 download the release archive.
 
 The default build is CEF 150.0.22 (`c1a097e`), the commit Nyxt compiles against.
-`patches/corner-radius.patch` adds `CefBrowserView::SetCornerRadius` before
-the release archive is compiled.
+`patches/corner-radius.patch` and `patches/floating-overlays.patch` add
+`CefBrowserView::SetCornerRadius`, `CefBrowserView::SetBackgroundBlur`,
+`CefBrowserView::SetSafeAreaInsets`, `CefPanel::ClearLayout`, and
+`CefPanel::SetViewportCutout` before the release archive is compiled.
 
 Build the same archive on this machine with `scripts/build-linux.sh`. It runs
 the workflow steps in an Ubuntu 24.04 container and publishes the release.
